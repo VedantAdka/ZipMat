@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request
+from requests import HTTPError
 from flask_mail import Mail, Message
 import sqlite3
 from werkzeug.local import Local, LocalProxy
@@ -37,9 +38,13 @@ def create_table():
             subject TEXT,
             body TEXT,
             request TEXT,
-            response TEXT
+            response TEXT,
+            status TEXT
         )
     ''')
+
+
+
 
 @app.route('/')
 def members():
@@ -67,32 +72,43 @@ def send_message():
             # Send the email via API
             response = mail.send(message)
 
+            # Create a response_data dictionary without status code
+            response_data = {
+                'status': 'Success',
+                'message': 'Email sent successfully',
+                'response_data': 'No response data'
+            }
+
+            # Infer the status code based on the success
+            status_code = 200  # Assuming a success status code
+            success_message = "Email sent successfully"
+
             # Insert the request and response data into the database
             conn = get_db()
             conn.execute('''
-                INSERT INTO email_logs (sender_email, recipient_email, subject, body, request, response)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (message.sender, message.recipients[0], message.subject, message.body, str(request_data), str(response)))
+                INSERT INTO email_logs (sender_email, recipient_email, subject, body, request, response, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (message.sender, message.recipients[0], message.subject, message.body, str(request_data), str(response_data), status_code))
 
             # Commit the changes to the database
             conn.commit()
 
-            success = "Message sent"
-            return render_template("result.html", success=success)
+            return render_template("result.html", success=success_message)
 
         except Exception as e:
             # Log any exceptions that occur during email sending
             conn = get_db()
             conn.execute('''
-                INSERT INTO email_logs (sender_email, recipient_email, subject, body, request, response)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (message.sender, message.recipients[0], message.subject, message.body, str(request_data), str(e)))
+                INSERT INTO email_logs (sender_email, recipient_email, subject, body, request, response, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (message.sender, message.recipients[0], message.subject, message.body, str(request_data), str(e), 'Error'))
 
             # Commit the changes to the database
             conn.commit()
 
-            error = "An error occurred while sending the message"
-            return render_template("result.html", error=error)
+            error_message = "An error occurred while sending the message"
+            return render_template("result.html", error=error_message)
+
 
 @app.route('/email_logs')
 def email_logs():
