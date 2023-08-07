@@ -2,13 +2,17 @@ from flask import Flask, render_template, request
 from flask_mail import Mail, Message
 import sqlite3
 from werkzeug.local import Local, LocalProxy
+from dotenv import load_dotenv
+import os
 
+load_dotenv()
 app = Flask(__name__)
-
+email_address=os.getenv("email_address")
+email_password=os.getenv("email_password")
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 465
-app.config['MAIL_USERNAME'] = 'kaushikshetty6979@gmail.com'
-app.config['MAIL_PASSWORD'] = 'mktuxahxuajpueno'
+app.config['MAIL_USERNAME'] = email_address
+app.config['MAIL_PASSWORD'] = email_password
 app.config['MAIL_USE_TLS'] = False
 app.config['MAIL_USE_SSL'] = True
 
