@@ -10,19 +10,20 @@
             margin: 0;
             padding: 20px;
         }
-        
+
         form {
             max-width: 400px;
             margin: 0 auto;
         }
-        
+
         label {
             display: block;
             margin-bottom: 5px;
         }
-        
+
         input,
-        textarea {
+        select,
+        [type="date"] {
             width: 100%;
             padding: 10px;
             margin-bottom: 10px;
@@ -30,32 +31,78 @@
             border-radius: 4px;
             resize: vertical;
         }
-        
+
         input[type="submit"] {
             background-color: #4CAF50;
             color: white;
             cursor: pointer;
         }
-        
+
         input[type="submit"]:hover {
             background-color: #45a049;
+        }
+
+        .additional-fields {
+            display: none;
         }
     </style>
 </head>
 <body>
     <h2>Contact Form</h2>
-  
-    <form action="{{url_for('send_message')}}" method="post">
+
+    <form action="{{ url_for('send_message') }}" method="post">
         <label for="email">Email:</label>
         <input type="email" name="email" id="email" placeholder="Enter your email" required>
-        
-        <label for="subject">Subject:</label>
-        <input type="text" name="subject" id="subject" placeholder="Enter the subject" required>
-        
+
         <label for="message">Message:</label>
-        <textarea name="message" id="message" placeholder="Enter your message" rows="6" required></textarea>
-        
-        <input type="submit" value="Send Message">
+        <select name="message" id="message" required>
+            <option value="" disabled selected>Select an option</option>
+            <option value="Order Confirmed">Order Confirmed</option>
+            <option value="Order Delivered">Order Delivered</option>
+        </select>
+
+        <!-- Additional fields for "Order Confirmed" -->
+        <div class="additional-fields" id="order_confirmed_fields">
+            <label for="order_id">Order ID:</label>
+            <input type="number" name="order_id" id="order_id" placeholder="Enter order ID" required>
+
+            <label for="product_name">Product Name:</label>
+            <input type="text" name="product_name" id="product_name" placeholder="Enter product name" required>
+        </div>
+
+        <!-- Additional fields for "Order Delivered" -->
+        <div class="additional-fields" id="order_delivered_fields">
+            <label for="order_id_delivered">Order ID:</label>
+            <input type="number" name="order_id_delivered" id="order_id_delivered" placeholder="Enter order ID" required>
+
+            <label for="product_name_delivered">Product Name:</label>
+            <input type="text" name="product_name_delivered" id="product_name_delivered" required placeholder="Enter product name">
+
+            <label for="delivery_date">Delivery Date:</label>
+            <input type="date" name="delivery_date" id="delivery_date" required>
+        </div>
+
+        <input type="submit" value="Send Message" required>
     </form>
+
+    <a href="email_logs">Logs</a>
+
+    <script>
+        // JavaScript to show additional fields based on the selected message
+        const messageSelect = document.getElementById('message');
+        const additionalFields = document.querySelectorAll('.additional-fields');
+
+        messageSelect.addEventListener('change', function() {
+            additionalFields.forEach(field => {
+                field.style.display = 'none';
+            });
+
+            if (messageSelect.value === 'Order Confirmed') {
+                document.getElementById('order_confirmed_fields').style.display = 'block';
+            } else if (messageSelect.value === 'Order Delivered') {
+                document.getElementById('order_delivered_fields').style.display = 'block';
+            }
+        });
+    </script>
 </body>
 </html>

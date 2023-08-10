@@ -1,33 +1,30 @@
 from flask import Flask, render_template, request
-from requests import HTTPError
 from flask_mail import Mail, Message
 import sqlite3
 from werkzeug.local import Local, LocalProxy
 from dotenv import load_dotenv
 import os
-# we did the branching and pull requset 
 
 load_dotenv()
 app = Flask(__name__)
-email_address=os.getenv("email_address")
-email_password=os.getenv("email_password")
+email_address = os.getenv("email_address")
+email_password = os.getenv("email_password")
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 465
-app.config['MAIL_USERNAME'] = email_address
-app.config['MAIL_PASSWORD'] = email_password
+app.config['MAIL_USERNAME'] = 'kaushikshetty6979@gmail.com'
+app.config['MAIL_PASSWORD'] = 'mktuxahxuajpueno'
 app.config['MAIL_USE_TLS'] = False
 app.config['MAIL_USE_SSL'] = True
 
 mail = Mail(app)
 
-# Create a LocalProxy for the SQLite connection
 db = Local()
+
 def get_db():
     if not hasattr(db, 'conn'):
         db.conn = sqlite3.connect('email_logs.db')
     return db.conn
 
-# Create a table for logging API requests and responses
 def create_table():
     conn = get_db()
     conn.execute('''
@@ -44,76 +41,79 @@ def create_table():
         )
     ''')
 
-
-
-
 @app.route('/')
 def members():
     return render_template('index.html')
 
-@app.route('/send_message', methods=["GET", "POST"])
+@app.route('/send_message', methods=["POST"])
 def send_message():
     if request.method == "POST":
         email = request.form['email']
-        msg = request.form['message']
-        subject = request.form['subject']
+        selected_message = request.form['message']
+        subject = "Order Status: " + selected_message
 
         message = Message(subject, sender="kaushikshetty6979@gmail.com", recipients=[email])
 
-        message.body = msg
+        if selected_message == "Order Delivered":
+            order_id_delivered = request.form.get('order_id_delivered', '')
+            product_name_delivered = request.form.get('product_name_delivered', '')
+            delivery_date = request.form.get('delivery_date', '')
 
-        # Capture the request data
+            message.body = f"Your order has been delivered.\nOrder ID: {order_id_delivered}\nProduct Name: {product_name_delivered}\nDelivery Date: {delivery_date}"
+        elif selected_message == "Order Confirmed":
+            order_id = request.form.get('order_id', '')
+            product_name = request.form.get('product_name', '')
+
+            message.body = f"Your order has been confirmed.\nOrder ID: {order_id}\nProduct Name: {product_name}"
+        else:
+            message.body = "This is a default email content."
+
         request_data = {
             'email': email,
-            'message': msg,
-            'subject': subject
+            'message': selected_message,
+            'order_id': order_id if selected_message == "Order Confirmed" else '',
+            'product_name': product_name if selected_message == "Order Confirmed" else '',
+            'order_id_delivered': order_id_delivered if selected_message == "Order Delivered" else '',
+            'product_name_delivered': product_name_delivered if selected_message == "Order Delivered" else '',
+            'delivery_date': delivery_date if selected_message == "Order Delivered" else '',
         }
 
         try:
-            # Send the email via API
             response = mail.send(message)
 
-            # Create a response_data dictionary without status code
             response_data = {
                 'status': 'Success',
                 'message': 'Email sent successfully',
                 'response_data': 'No response data'
             }
 
-            # Infer the status code based on the success
-            status_code = 200  # Assuming a success status code
+            status_code = 200
             success_message = "Email sent successfully"
 
-            # Insert the request and response data into the database
             conn = get_db()
             conn.execute('''
                 INSERT INTO email_logs (sender_email, recipient_email, subject, body, request, response, status)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             ''', (message.sender, message.recipients[0], message.subject, message.body, str(request_data), str(response_data), status_code))
 
-            # Commit the changes to the database
             conn.commit()
 
             return render_template("result.html", success=success_message)
 
         except Exception as e:
-            # Log any exceptions that occur during email sending
             conn = get_db()
             conn.execute('''
                 INSERT INTO email_logs (sender_email, recipient_email, subject, body, request, response, status)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             ''', (message.sender, message.recipients[0], message.subject, message.body, str(request_data), str(e), 'Error'))
 
-            # Commit the changes to the database
             conn.commit()
 
             error_message = "An error occurred while sending the message"
             return render_template("result.html", error=error_message)
 
-
 @app.route('/email_logs')
 def email_logs():
-    # Retrieve all email logs from the database
     conn = get_db()
     cursor = conn.execute("SELECT * FROM email_logs")
     logs = cursor.fetchall()
@@ -123,7 +123,6 @@ if __name__ == '__main__':
     create_table()
     app.run(debug=True)
 
-# Close the database connection
 def close_connection(exception):
     conn = getattr(db, 'conn', None)
     if conn is not None:
