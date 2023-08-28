@@ -50,7 +50,10 @@
 <body>
     <h2>Contact Form</h2>
 
-    <form action="{{ url_for('send_message') }}" method="post">
+    <!-- Add the JWT token input field -->
+    <input type="hidden" id="jwt_token" name="jwt_token" value="">
+
+    <form id="email_form" method="post">
         <label for="email">Email:</label>
         <input type="email" name="email" id="email" placeholder="Enter your email" required>
 
@@ -79,13 +82,13 @@
             <input type="date" name="delivery_date" id="delivery_date">
         </div>
 
-        <input type="submit" value="Send Message">
+        <!-- Submit button -->
+        <button type="submit">Send Message</button>
     </form>
 
     <a href="email_logs">Logs</a>
 
     <script>
-        // JavaScript to show additional fields based on the selected message
         const messageSelect = document.getElementById('message');
         const additionalFields = document.querySelectorAll('.additional-fields');
 
@@ -99,6 +102,25 @@
             } else if (messageSelect.value === 'Order Delivered') {
                 document.getElementById('order_delivered_fields').style.display = 'block';
             }
+        });
+        
+        // Get JWT token and populate the input field
+        fetch('/login', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                username: 'your_username',
+                password: 'your_password'
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('jwt_token').value = data.access_token;
+        })
+        .catch(error => {
+            console.error('Error fetching JWT token:', error);
         });
     </script>
 </body>
