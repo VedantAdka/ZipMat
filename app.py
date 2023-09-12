@@ -7,23 +7,75 @@ from functools import wraps
 from flask_jwt_extended import JWTManager,jwt_required
 import jwt
 import datetime
+from dotenv import load_dotenv 
+import os
+import redis
+
 
 app = Flask(__name__)
+load_dotenv()
 
-app.config['SECRET_KEY'] = '01f210f05f874915ad4e1598ce7f6454'
+# Initialize Redis client
+redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
 
-def get_db(db_name='error_logs.db'):
-    if not hasattr(db, 'conn'):
-        db.conn = sqlite3.connect(db_name)
-        # The connection will be automatically closed at the end of the request
-        app.teardown_appcontext(close_connection)
-    return db.conn
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
 
-def create_error_logs_table():
-    conn = get_db()  # Use the error_logs.db database
+def get_invalid_token_db():
+    if not hasattr(db, 'invalid_token_conn'):
+        db.invalid_token_conn = sqlite3.connect('invalid_token_logs.db')
+    return db.invalid_token_conn
+
+def deduplicate_request(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        # Generate a unique hash based on the email address in the request
+        email = request.form.get('email', '')  # Assuming the email is in the form data
+        request_hash = hash(email)
+
+        # Check if the hash exists in Redis (indicating a duplicate request)
+        if redis_client.exists(request_hash):
+            return jsonify({'message': 'Duplicate request.'}), 400
+
+        # Store the hash in Redis with an expiration of 15 minutes
+        redis_client.setex(request_hash, 900, 1)
+
+        # Proceed with the decorated function
+        return f(*args, **kwargs)
+
+    return decorated
+
+# Decorator for rate limiting
+def rate_limit(limit, window):
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            # Get the JWT token from the request
+            jwt_token = request.headers.get('Authorization')
+
+            # Check if the JWT token is in Redis
+            if jwt_token:
+                jwt_token_count = redis_client.incr(jwt_token)
+
+                # Set an expiry for the token if it doesn't exist in Redis
+                if jwt_token_count == 1:
+                    redis_client.expire(jwt_token, window)
+
+                # Check if the request limit has been exceeded
+                if jwt_token_count > limit:
+                    return jsonify({'message': 'Rate limit exceeded.'}), 429
+
+            # Proceed with the decorated function
+            return f(*args, **kwargs)
+
+        return decorated
+
+    return decorator
+
+def create_invalid_token_logs_table():
+    conn = get_invalid_token_db()
     cursor = conn.cursor()
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS error_logs (
+        CREATE TABLE IF NOT EXISTS invalid_token_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             invalid_token TEXT,
@@ -33,7 +85,29 @@ def create_error_logs_table():
         )
     ''')
     conn.commit()
-    
+    conn.close()
+
+def log_invalid_token_to_db(invalid_token, sub_claim, name_claim, error_message):
+    try:
+        print("Inside log_invalid_token_to_db function")
+        print("Invalid Token:", invalid_token)
+        print("Sub Claim:", sub_claim)
+        print("Name Claim:", name_claim)
+        print("Error Message:", error_message)
+        
+        conn = get_invalid_token_db()
+        query = '''
+            INSERT INTO invalid_token_logs (invalid_token, sub_claim, name_claim, error_message)
+            VALUES (?, ?, ?, ?)
+        '''
+        conn.execute(query, (invalid_token, sub_claim, name_claim, error_message))
+        conn.commit()
+        print("Invalid token logged to database")
+    except Exception as db_error:
+        print("Database error:", db_error)
+        import traceback
+        traceback.print_exc()
+
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -50,40 +124,34 @@ def token_required(f):
         token = parts[1]  # Remove "Bearer" prefix
         print("Token extracted:", token)
         
+        sub_claim = None  # Initialize sub_claim to None
+        name_claim = None  # Initialize name_claim to None
+        
         try:
             decoded_token = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
             print("Valid token")
-            # Continue with regular token verification logic
+            
+            # Extract claims from the decoded token
+            sub_claim = decoded_token.get('sub')
+            name_claim = decoded_token.get('name')
+            
             return f(*args, **kwargs)
         except jwt.ExpiredSignatureError as expired_err:
             # Log expired token error
             print("Expired token error:", str(expired_err))
-            log_error_to_db(token, None, None, str(expired_err))
+            log_invalid_token_to_db(token, sub_claim, name_claim, str(expired_err))
             return jsonify({'message': 'Expired token.'}), 403
         except jwt.InvalidTokenError as invalid_err:
             # Log invalid token error
             print("Invalid token error:", str(invalid_err))
-            log_error_to_db(token, None, None, str(invalid_err))
+            log_invalid_token_to_db(token, sub_claim, name_claim, str(invalid_err))
             return jsonify({'message': 'Invalid token.'}), 403
         except Exception as e:
             # Log other exceptions
             print("Other exception:", str(e))
-            log_error_to_db(token, None, None, str(e))
+            log_invalid_token_to_db(token, sub_claim, name_claim, str(e))
             return jsonify({'message': 'An error occurred.'}), 500
     return decorated
-
-def log_error_to_db(invalid_token, sub_claim, name_claim, error_message):
-    try:
-        conn = get_db()
-        query = '''
-            INSERT INTO error_logs (invalid_token, sub_claim, name_claim, error_message)
-            VALUES (?, ?, ?, ?)
-        '''
-        conn.execute(query, (invalid_token, sub_claim, name_claim, error_message))
-        conn.commit()
-    except Exception as db_error:
-        print("Database error:", db_error)
-
 
 
 @app.route('/unprotected')
@@ -95,18 +163,14 @@ def unprotected():
 def protected():
     return jsonify({'message':'This is only availabe for people with valid token.'})
 
-# def login():
-#     auth = request.authorization
-#     if auth and auth.password == 'password':
-#         token = create_access_token(identity=auth.username, expires_delta=datetime.timedelta(minutes=30))
-#         return jsonify({'token': token})
-#     return make_response('Could not verify!', 401, {'WWW-Authenticate': 'Basic realm="Login Required"'})
+
 # Configure Flask-Mail
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 465
 app.config['MAIL_USE_TLS'] = False
 app.config['MAIL_USE_SSL'] = True
-
+app.config['MAIL_USERNAME'] = os.getenv('email_address')  # Get email address from environment variable
+app.config['MAIL_PASSWORD'] = os.getenv('email_password')  # Get email password from environment variable
 # Initialize Flask-Mail
 mail = Mail(app)
 
@@ -130,9 +194,13 @@ def create_table():
             body TEXT,
             request TEXT,
             response TEXT,
-            status TEXT
+            status TEXT,
+            name_claim TEXT,  -- Add the name_claim column
+            sub_claim TEXT    -- Add the sub_claim column
         )
     ''')
+
+
 
 
 
@@ -142,15 +210,35 @@ def members():
     return render_template('index.html')
 
 # Secure routes with JWT
-@app.route('/send_message', methods=["GET", "POST"])  # Allow only POST method
+@app.route('/send_message', methods=["POST"])
 @token_required
+@deduplicate_request
+@rate_limit(limit=3, window=300)  # Adjust the limit and window values as needed
 def send_message():
+    jwt_token = request.headers.get('Authorization')
+    if jwt_token:
+        try:
+            decoded_token = jwt.decode(jwt_token.split()[1], app.config['SECRET_KEY'], algorithms=['HS256'])
+            name_claim = decoded_token.get('name')
+            sub_claim = decoded_token.get('sub')
+        except jwt.ExpiredSignatureError:
+            # Handle token expiration
+            name_claim = None
+            sub_claim = None
+        except jwt.InvalidTokenError:
+            # Handle invalid token
+            name_claim = None
+            sub_claim = None
+        except Exception:
+            # Handle other exceptions
+            name_claim = None
+            sub_claim = None
     if request.method == "POST":
         email = request.form['email']
         selected_message = request.form['message']
         subject = "Order Status: " + selected_message
 
-        message = Message(subject, sender="kaushikshetty6979@gmail.com", recipients=[email])
+        message = Message(subject, sender="email_address", recipients=[email])
 
         if selected_message == "Order Delivered":
             order_id_delivered = request.form.get('order_id_delivered', '')
@@ -177,38 +265,43 @@ def send_message():
         }
 
         try:
-            response = mail.send(message)
+            mail.send(message)  # Send the email
+
+            # Set status_message and status_code for a successful email send
+            status_message = 'Success'
+            status_code = 200
 
             response_data = {
-                'status': 'Success',
+                'status': status_message,
                 'message': 'Email sent successfully',
                 'response_data': 'No response data'
             }
 
-            status_code = 200
-            success_message = "Email sent successfully"
-
-            conn = get_db()
-            conn.execute('''
-                INSERT INTO email_logs (sender_email, recipient_email, subject, body, request, response, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (message.sender, message.recipients[0], message.subject, message.body, str(request_data), str(response_data), status_code))
-
-            conn.commit()
-
-            return render_template("result.html", success=success_message)
-
         except Exception as e:
-            conn = get_db()
-            conn.execute('''
-                INSERT INTO email_logs (sender_email, recipient_email, subject, body, request, response, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (message.sender, message.recipients[0], message.subject, message.body, str(request_data), str(e), 'Error'))
+            # Handle the case where sending the email failed
+            status_message = 'Error'
+            status_code = 500
 
-            conn.commit()
+            response_data = {
+                'status': status_message,
+                'message': 'Email send failed',
+                'response_data': str(e)
+            }
 
-            error_message = "An error occurred while sending the message"
-            return render_template("result.html", error=error_message)
+        conn = get_db()
+    conn.execute('''
+        INSERT INTO email_logs (sender_email, recipient_email, subject, body, request, response, status, name_claim, sub_claim)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (message.sender, message.recipients[0], message.subject, message.body, str(request_data), str(response_data), status_code, name_claim, sub_claim))
+
+    conn.commit()
+
+    if status_message == 'Success':
+        success_message = "Email sent successfully"
+        return render_template("result.html", success=success_message)
+    else:
+        error_message = "An error occurred while sending the message"
+        return render_template("result.html", error=error_message)
 
 @app.route('/email_logs')
 # @token_required
@@ -218,13 +311,13 @@ def email_logs():
     logs = cursor.fetchall()
     return render_template('email_logs.html', logs=logs)
 
-@app.route('/error_logs')
+@app.route('/invalid_token_logs')
 # @token_required
-def error_logs():
-    conn = get_db()
-    cursor = conn.execute("SELECT * FROM error_logs")  # Use the correct table name
+def invalid_token_logs():
+    conn = get_invalid_token_db()
+    cursor = conn.execute("SELECT * FROM invalid_token_logs")
     logs = cursor.fetchall()
-    return render_template('error_logs.html', logs=logs)
+    return render_template('invalid_token_logs.html', logs=logs)
 
 
 @app.route('/result')
@@ -233,9 +326,8 @@ def result():
 
 if __name__ == '__main__':
     create_table()
-    create_error_logs_table()  # Call the function to create the error_logs table
+    create_invalid_token_logs_table()  
     app.run(debug=True)
-
 
 def close_connection(exception):
     conn = getattr(db, 'conn', None)

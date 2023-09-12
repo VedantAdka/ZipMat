@@ -50,10 +50,7 @@
 <body>
     <h2>Contact Form</h2>
 
-    <!-- Add the JWT token input field -->
-    <input type="hidden" id="jwt_token" name="jwt_token" value="">
-
-    <form id="email_form" method="post">
+    <form id="email_form" method="post" action="/send_message">
         <label for="email">Email:</label>
         <input type="email" name="email" id="email" placeholder="Enter your email" required>
 
@@ -97,30 +94,12 @@
                 field.style.display = 'none';
             });
 
-            if (messageSelect.value === 'Order Confirmed') {
+            const selectedOption = messageSelect.value;
+            if (selectedOption === 'Order Confirmed') {
                 document.getElementById('order_confirmed_fields').style.display = 'block';
-            } else if (messageSelect.value === 'Order Delivered') {
+            } else if (selectedOption === 'Order Delivered') {
                 document.getElementById('order_delivered_fields').style.display = 'block';
             }
-        });
-        
-        // Get JWT token and populate the input field
-        fetch('/login', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                username: 'your_username',
-                password: 'your_password'
-            })
-        })
-        .then(response => response.json())
-        .then(data => {
-            document.getElementById('jwt_token').value = data.access_token;
-        })
-        .catch(error => {
-            console.error('Error fetching JWT token:', error);
         });
     </script>
 </body>

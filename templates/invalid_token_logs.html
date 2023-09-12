@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Invalid Token Logs</title>
+</head>
+<body>
+    <h1>Invalid Token Logs</h1>
+    <table>
+        <tr>
+            <th>ID</th>
+            <th>Timestamp</th>
+            <th>Invalid Token</th>
+            <th>Sub Claim</th>
+            <th>Name Claim</th>
+            <th>Error Message</th>
+        </tr>
+        {% for log in logs %}
+        <tr>
+            <td>{{ log[0] }}</td>
+            <td>{{ log[1] }}</td>
+            <td>{{ log[2] }}</td>
+            <td>{{ log[3] }}</td>
+            <td>{{ log[4] }}</td>
+            <td>{{ log[5] }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>

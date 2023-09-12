@@ -43,6 +43,8 @@
             <th>Request</th>
             <th>Response</th>
             <th>Status</th>
+            <th>Name Claim</th> 
+            <th>Sub Claim</th> 
         </tr>
         {% for log in logs %}
         <tr>
@@ -55,6 +57,8 @@
             <td>{{ log[6] }}</td>
             <td>{{ log[7] }}</td>
             <td>{{ log[8] }}</td>
+            <td>{{ log[9] }}</td> 
+            <td>{{ log[10] }}</td> 
         </tr>
         {% endfor %}
     </table>
